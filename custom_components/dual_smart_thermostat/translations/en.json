@@ -645,7 +645,10 @@
                     "precision": "Temperature precision",
                     "target_temp_step": "Temperature step",
                     "min_cycle_duration": "Minimum cycle duration",
-                    "keep_alive": "Keep alive interval"
+                    "keep_alive": "Keep alive interval",
+                    "actuator_state_timeout": "Actuator response timeout",
+                    "temperature_change_threshold": "Temperature change threshold",
+                    "temperature_change_duration": "Temperature change duration"
                 },
                 "data_description": {
                     "cold_tolerance": "Minimum temperature difference below target before activating heating. Lower values make heating more responsive (default: 0.3°C).",
@@ -656,7 +659,10 @@
                     "precision": "Temperature precision for display and control. Determines the decimal precision for temperature values (0.1, 0.5, or 1.0 degrees).",
                     "target_temp_step": "Temperature step size for adjustments. Controls how much the target temperature changes with each adjustment.",
                     "min_cycle_duration": "Minimum time equipment must run before switching off. Prevents rapid on/off cycling and protects equipment from damage (default: 5 minutes).",
-                    "keep_alive": "Keep alive duration for periodic switching. Set this if your switch needs a heartbeat to keep it 'alive'."
+                    "keep_alive": "Keep alive duration for periodic switching. Set this if your switch needs a heartbeat to keep it 'alive'.",
+                    "actuator_state_timeout": "Maximum time to wait after sending a turn_on or turn_off command before flagging the actuator as unresponsive. The fault sensor also turns on immediately if the actuator becomes unavailable.",
+                    "temperature_change_threshold": "Minimum temperature movement required within the configured duration while actively heating or cooling. If the sensor does not move by at least this amount in the expected direction, the temperature progress fault sensor turns on.",
+                    "temperature_change_duration": "How long the thermostat should wait for meaningful temperature movement while actively heating or cooling before flagging a temperature progress problem."
                 },
                 "sections": {
                     "advanced_settings": {

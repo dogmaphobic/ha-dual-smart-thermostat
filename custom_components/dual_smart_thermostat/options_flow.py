@@ -14,6 +14,7 @@ import voluptuous as vol
 from .config_validation import validate_config_with_models
 from .const import (
     CONF_AC_MODE,
+    CONF_ACTUATOR_STATE_TIMEOUT,
     CONF_AUX_HEATER,
     CONF_AUX_HEATING_DUAL_MODE,
     CONF_AUX_HEATING_TIMEOUT,
@@ -37,10 +38,13 @@ from .const import (
     CONF_PRESETS,
     CONF_STALE_DURATION,
     CONF_SYSTEM_TYPE,
+    CONF_TEMPERATURE_CHANGE_DURATION,
+    CONF_TEMPERATURE_CHANGE_THRESHOLD,
     CONF_TARGET_TEMP,
     CONF_TARGET_TEMP_HIGH,
     CONF_TARGET_TEMP_LOW,
     CONF_TEMP_STEP,
+    DEFAULT_ACTUATOR_STATE_TIMEOUT,
     SYSTEM_TYPE_AC_ONLY,
     SYSTEM_TYPE_DUAL_STAGE,
     SYSTEM_TYPE_FLOOR_HEATING,
@@ -120,7 +124,13 @@ class OptionsFlowHandler(OptionsFlow):
         from datetime import timedelta
 
         # Time-based keys that may be serialized as dicts
-        time_keys = [CONF_KEEP_ALIVE, CONF_MIN_DUR, CONF_STALE_DURATION]
+        time_keys = [
+            CONF_KEEP_ALIVE,
+            CONF_MIN_DUR,
+            CONF_STALE_DURATION,
+            CONF_ACTUATOR_STATE_TIMEOUT,
+            CONF_TEMPERATURE_CHANGE_DURATION,
+        ]
 
         for key in time_keys:
             if key in config and config[key] is not None:
@@ -365,6 +375,70 @@ class OptionsFlowHandler(OptionsFlow):
         else:
             schema_dict[vol.Optional(CONF_KEEP_ALIVE)] = selector.DurationSelector(
                 selector.DurationSelectorConfig(allow_negative=False)
+            )
+
+        actuator_timeout = current_config.get(CONF_ACTUATOR_STATE_TIMEOUT)
+        if actuator_timeout is not None:
+            schema_dict[
+                vol.Optional(
+                    CONF_ACTUATOR_STATE_TIMEOUT,
+                    description={"suggested_value": actuator_timeout},
+                )
+            ] = selector.DurationSelector(
+                selector.DurationSelectorConfig(allow_negative=False)
+            )
+        else:
+            schema_dict[
+                vol.Optional(
+                    CONF_ACTUATOR_STATE_TIMEOUT,
+                    description={
+                        "suggested_value": {
+                            "seconds": int(DEFAULT_ACTUATOR_STATE_TIMEOUT)
+                        }
+                    },
+                )
+            ] = selector.DurationSelector(
+                selector.DurationSelectorConfig(allow_negative=False)
+            )
+
+        temp_change_threshold = current_config.get(CONF_TEMPERATURE_CHANGE_THRESHOLD)
+        if temp_change_threshold is not None:
+            schema_dict[
+                vol.Optional(
+                    CONF_TEMPERATURE_CHANGE_THRESHOLD,
+                    description={"suggested_value": temp_change_threshold},
+                )
+            ] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement=DEGREE,
+                )
+            )
+        else:
+            schema_dict[vol.Optional(CONF_TEMPERATURE_CHANGE_THRESHOLD)] = (
+                selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement=DEGREE,
+                    )
+                )
+            )
+
+        temp_change_duration = current_config.get(CONF_TEMPERATURE_CHANGE_DURATION)
+        if temp_change_duration is not None:
+            schema_dict[
+                vol.Optional(
+                    CONF_TEMPERATURE_CHANGE_DURATION,
+                    description={"suggested_value": temp_change_duration},
+                )
+            ] = selector.DurationSelector(
+                selector.DurationSelectorConfig(allow_negative=False)
+            )
+        else:
+            schema_dict[vol.Optional(CONF_TEMPERATURE_CHANGE_DURATION)] = (
+                selector.DurationSelector(
+                    selector.DurationSelectorConfig(allow_negative=False)
+                )
             )
 
         # === ADVANCED SETTINGS (collapsible section) ===

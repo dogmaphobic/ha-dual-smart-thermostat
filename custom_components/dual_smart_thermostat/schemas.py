@@ -19,6 +19,7 @@ import voluptuous as vol
 
 from .const import (
     CONF_AC_MODE,
+    CONF_ACTUATOR_STATE_TIMEOUT,
     CONF_AUX_HEATER,
     CONF_AUX_HEATING_DUAL_MODE,
     CONF_AUX_HEATING_TIMEOUT,
@@ -54,11 +55,14 @@ from .const import (
     CONF_PRESETS,
     CONF_SENSOR,
     CONF_SYSTEM_TYPE,
+    CONF_TEMPERATURE_CHANGE_DURATION,
+    CONF_TEMPERATURE_CHANGE_THRESHOLD,
     CONF_TARGET_HUMIDITY,
     CONF_TARGET_TEMP,
     CONF_TARGET_TEMP_HIGH,
     CONF_TARGET_TEMP_LOW,
     CONF_TEMP_STEP,
+    DEFAULT_ACTUATOR_STATE_TIMEOUT,
     DEFAULT_TOLERANCE,
     SYSTEM_TYPES,
     SystemType,
@@ -305,6 +309,43 @@ def get_timing_fields_for_section(
         schema_dict[vol.Optional(CONF_KEEP_ALIVE, default=keep_alive_default)] = (
             get_time_selector(min_value=0, max_value=3600)
         )
+
+    actuator_timeout_value = defaults.get(
+        CONF_ACTUATOR_STATE_TIMEOUT, DEFAULT_ACTUATOR_STATE_TIMEOUT
+    )
+    if isinstance(actuator_timeout_value, dict):
+        actuator_timeout_default = actuator_timeout_value
+    else:
+        if isinstance(actuator_timeout_value, timedelta):
+            actuator_timeout_value = int(actuator_timeout_value.total_seconds())
+        actuator_timeout_default = seconds_to_duration(actuator_timeout_value)
+    schema_dict[
+        vol.Optional(CONF_ACTUATOR_STATE_TIMEOUT, default=actuator_timeout_default)
+    ] = get_time_selector(min_value=0, max_value=3600)
+
+    temp_change_threshold = defaults.get(CONF_TEMPERATURE_CHANGE_THRESHOLD)
+    schema_dict[
+        vol.Optional(
+            CONF_TEMPERATURE_CHANGE_THRESHOLD,
+            default=(
+                temp_change_threshold
+                if temp_change_threshold is not None
+                else vol.UNDEFINED
+            ),
+        )
+    ] = get_tolerance_selector(hass=None, min_value=0.1, max_value=20, step=0.1)
+
+    temp_change_duration = defaults.get(CONF_TEMPERATURE_CHANGE_DURATION)
+    if isinstance(temp_change_duration, timedelta):
+        temp_change_duration = seconds_to_duration(
+            int(temp_change_duration.total_seconds())
+        )
+    schema_dict[
+        vol.Optional(
+            CONF_TEMPERATURE_CHANGE_DURATION,
+            default=temp_change_duration if temp_change_duration is not None else vol.UNDEFINED,
+        )
+    ] = get_time_selector(min_value=0, max_value=86400)
 
     return schema_dict
 

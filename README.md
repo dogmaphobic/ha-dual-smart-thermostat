@@ -921,6 +921,22 @@ The internal values can be set by the component only and the external values can
 
   **NOTE! If this is set, the saved state will not be restored after HA restarts.**
 
+### actuator_state_timeout
+
+  _(optional) (time, integer)_ Maximum time to wait after sending a `turn_on`, `turn_off`, `open_valve`, or `close_valve` command before the thermostat marks the controlled actuator as unresponsive.
+
+  This also turns on the actuator problem binary sensor immediately if the configured heater, cooler, or secondary heater entity becomes `unknown` or `unavailable`.
+
+  _default: 30 seconds_
+
+### temperature_change_threshold
+
+  _(optional) (float)_ Minimum temperature movement required while the thermostat is actively heating or cooling. Use together with `temperature_change_duration` to enable the temperature progress problem binary sensor.
+
+### temperature_change_duration
+
+  _(optional) (time, integer)_ How long the thermostat should wait for the target sensor to move by at least `temperature_change_threshold` in the expected direction while `hvac_action` is `heating` or `cooling`.
+
 ### away
 
   _(optional) (list)_ Set the temperatures used by `preset_mode: away`. If this is not specified, the preset mode feature will not be available.
@@ -1012,6 +1028,75 @@ The internal values can be set by the component only and the external values can
   _(optional) (float)_ The desired step size for setting the target temperature. Supported values are `0.1`, `0.5` and `1.0`.
 
   _default: Value used for `precision`_
+
+## Diagnostic Binary Sensors
+
+When a thermostat is configured, the integration can expose companion
+diagnostic binary sensors that reflect live fault conditions.
+
+### Actuator Problem Sensor
+
+Entity name: `<thermostat name> actuator problem`
+
+This sensor is always created when the thermostat has at least one actuator
+entity (`heater`, `cooler`, or `secondary_heater`). It turns on when:
+
+- an actuator entity becomes `unknown` or `unavailable`
+- a command is sent and the actuator never reaches the expected state within
+  `actuator_state_timeout`
+
+Useful attributes:
+
+- `faulty_entities`: list of actuator entities currently in fault
+- `details`: per-entity reason and expected/actual state information
+
+### Temperature Progress Problem Sensor
+
+Entity name: `<thermostat name> temperature progress problem`
+
+This sensor is created only when both `temperature_change_threshold` and
+`temperature_change_duration` are configured. It monitors the target sensor
+while the thermostat is actively heating or cooling and turns on when the
+temperature does not move enough in the expected direction within the configured
+window.
+
+### Reset Behavior
+
+These sensors are not latched alarms, so there is no manual reset service.
+They automatically clear when the monitored condition clears:
+
+- actuator problem clears when the entity becomes available again and, for
+  command timeouts, reaches the expected state
+- temperature progress problem clears when temperature starts moving enough
+  again or the thermostat is no longer actively heating/cooling
+
+If you want acknowledgement, latching, or manual reset semantics, handle that
+in automations/AppDaemon rather than in the thermostat integration itself.
+
+### Diagnostic Example
+
+```yaml
+climate:
+  - platform: dual_smart_thermostat
+    name: Garage Heater
+    unique_id: garage_heater
+    heater: light.garage_heater
+    target_sensor: sensor.garage_temperature
+    target_temp: 10
+    min_temp: 5
+    max_temp: 20
+    cold_tolerance: 0.25
+    hot_tolerance: 0.25
+    actuator_state_timeout:
+      seconds: 30
+    temperature_change_threshold: 1.0
+    temperature_change_duration:
+      minutes: 30
+    away:
+      temperature: 5
+    home:
+      temperature: 10
+```
 
 ## Troubleshooting
 
@@ -1210,6 +1295,11 @@ climate:
       minutes: 5
     keep_alive:
       minutes: 3
+    actuator_state_timeout:
+      seconds: 30
+    temperature_change_threshold: 1.0
+    temperature_change_duration:
+      minutes: 30
     initial_hvac_mode: "off" # hvac mode will reset to this value after restart
     away: # this preset will be available for all hvac modes
       temperature: 13

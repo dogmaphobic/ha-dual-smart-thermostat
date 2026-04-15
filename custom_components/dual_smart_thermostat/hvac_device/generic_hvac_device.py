@@ -10,13 +10,18 @@ from homeassistant.const import (
     SERVICE_OPEN_VALVE,
     SERVICE_TURN_OFF,
     SERVICE_TURN_ON,
+    STATE_CLOSED,
+    STATE_OFF,
     STATE_ON,
+    STATE_OPEN,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
 from homeassistant.core import DOMAIN as HA_DOMAIN, Context, HomeAssistant
+from homeassistant.helpers.dispatcher import dispatcher_send
 
 from ..hvac_action_reason.hvac_action_reason import HVACActionReason
+from ..const import SIGNAL_ACTUATOR_DIAGNOSTICS
 from ..hvac_controller.generic_controller import GenericHvacController
 from ..hvac_controller.hvac_controller import HvacController, HvacEnvStrategy, HvacGoal
 from ..hvac_device.controllable_hvac_device import ControlableHVACDevice
@@ -119,6 +124,14 @@ class GenericHVACDevice(
     @property
     def _supports_close_valve(self) -> bool:
         return self._is_valve and self._entity_features & ValveEntityFeature.CLOSE
+
+    @property
+    def _expected_on_state(self) -> str:
+        return STATE_OPEN if self._supports_open_valve else STATE_ON
+
+    @property
+    def _expected_off_state(self) -> str:
+        return STATE_CLOSED if self._supports_close_valve else STATE_OFF
 
     @property
     def target_env_attr(self) -> str:
@@ -297,6 +310,11 @@ class GenericHVACDevice(
                 _LOGGER.debug(
                     "Skipping turn_on for unavailable entity %s", self.entity_id
                 )
+                self._emit_actuator_diagnostic(
+                    "command_skipped",
+                    expected_state=self._expected_on_state,
+                    reason="entity_unavailable",
+                )
                 return
 
         try:
@@ -309,6 +327,18 @@ class GenericHVACDevice(
             )
         except Exception as e:
             _LOGGER.error("Error turning on entity %s. Error: %s", self.entity_id, e)
+            self._emit_actuator_diagnostic(
+                "command_error",
+                expected_state=self._expected_on_state,
+                reason="service_call_failed",
+                error=str(e),
+            )
+            return
+
+        self._emit_actuator_diagnostic(
+            "command_sent",
+            expected_state=self._expected_on_state,
+        )
 
     async def _async_turn_off_entity(self) -> None:
         """Turn off the entity."""
@@ -328,6 +358,11 @@ class GenericHVACDevice(
                 _LOGGER.debug(
                     "Skipping turn_off for unavailable entity %s", self.entity_id
                 )
+                self._emit_actuator_diagnostic(
+                    "command_skipped",
+                    expected_state=self._expected_off_state,
+                    reason="entity_unavailable",
+                )
                 return
 
         try:
@@ -340,10 +375,35 @@ class GenericHVACDevice(
             )
         except Exception as e:
             _LOGGER.error("Error turning off entity %s. Error: %s", self.entity_id, e)
+            self._emit_actuator_diagnostic(
+                "command_error",
+                expected_state=self._expected_off_state,
+                reason="service_call_failed",
+                error=str(e),
+            )
+            return
+
+        self._emit_actuator_diagnostic(
+            "command_sent",
+            expected_state=self._expected_off_state,
+        )
 
     async def _async_open_valve_entity(self) -> None:
         """Open the entity."""
         _LOGGER.info("%s. Opening entity %s", self.__class__.__name__, self.entity_id)
+
+        if self.entity_id is not None:
+            entity_state = self.hass.states.get(self.entity_id)
+            if entity_state is None or entity_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ):
+                self._emit_actuator_diagnostic(
+                    "command_skipped",
+                    expected_state=STATE_OPEN,
+                    reason="entity_unavailable",
+                )
+                return
 
         try:
             await self.hass.services.async_call(
@@ -355,10 +415,32 @@ class GenericHVACDevice(
             )
         except Exception as e:
             _LOGGER.error("Error opening entity %s. Error: %s", self.entity_id, e)
+            self._emit_actuator_diagnostic(
+                "command_error",
+                expected_state=STATE_OPEN,
+                reason="service_call_failed",
+                error=str(e),
+            )
+            return
+
+        self._emit_actuator_diagnostic("command_sent", expected_state=STATE_OPEN)
 
     async def _async_close_valve_entity(self) -> None:
         """Close the entity."""
         _LOGGER.info("%s. Closing entity %s", self.__class__.__name__, self.entity_id)
+
+        if self.entity_id is not None:
+            entity_state = self.hass.states.get(self.entity_id)
+            if entity_state is None or entity_state.state in (
+                STATE_UNAVAILABLE,
+                STATE_UNKNOWN,
+            ):
+                self._emit_actuator_diagnostic(
+                    "command_skipped",
+                    expected_state=STATE_CLOSED,
+                    reason="entity_unavailable",
+                )
+                return
 
         try:
             await self.hass.services.async_call(
@@ -370,3 +452,43 @@ class GenericHVACDevice(
             )
         except Exception as e:
             _LOGGER.error("Error closing entity %s. Error: %s", self.entity_id, e)
+            self._emit_actuator_diagnostic(
+                "command_error",
+                expected_state=STATE_CLOSED,
+                reason="service_call_failed",
+                error=str(e),
+            )
+            return
+
+        self._emit_actuator_diagnostic("command_sent", expected_state=STATE_CLOSED)
+
+    def _emit_actuator_diagnostic(
+        self,
+        event_type: str,
+        *,
+        expected_state: str | None = None,
+        reason: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Send actuator command telemetry to the diagnostic binary sensor layer.
+
+        The binary sensors are responsible for evaluating timeouts and recovery;
+        this helper simply publishes enough context about what command was
+        attempted and what the entity state looked like at send time.
+        """
+        if not self._runtime_key or not self.entity_id:
+            return
+
+        current_state = self.hass.states.get(self.entity_id)
+        dispatcher_send(
+            self.hass,
+            SIGNAL_ACTUATOR_DIAGNOSTICS.format(self._runtime_key),
+            {
+                "event_type": event_type,
+                "entity_id": self.entity_id,
+                "expected_state": expected_state,
+                "reason": reason,
+                "error": error,
+                "actual_state": current_state.state if current_state else None,
+            },
+        )

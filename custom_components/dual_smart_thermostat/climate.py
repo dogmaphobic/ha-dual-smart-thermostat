@@ -45,6 +45,7 @@ from homeassistant.core import (
 )
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_connect, dispatcher_send
+from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import (
     async_call_later,
@@ -74,6 +75,7 @@ from .const import (
     CONF_AUX_HEATER,
     CONF_AUX_HEATING_DUAL_MODE,
     CONF_AUX_HEATING_TIMEOUT,
+    CONF_ACTUATOR_STATE_TIMEOUT,
     CONF_COLD_TOLERANCE,
     CONF_COOL_TOLERANCE,
     CONF_COOLER,
@@ -114,6 +116,8 @@ from .const import (
     CONF_PRESETS_OLD,
     CONF_SENSOR,
     CONF_STALE_DURATION,
+    CONF_TEMPERATURE_CHANGE_DURATION,
+    CONF_TEMPERATURE_CHANGE_THRESHOLD,
     CONF_TARGET_HUMIDITY,
     CONF_TARGET_TEMP,
     CONF_TARGET_TEMP_HIGH,
@@ -123,7 +127,9 @@ from .const import (
     DEFAULT_NAME,
     DEFAULT_TOLERANCE,
     MIN_CYCLE_KEEP_ALIVE,
+    SIGNAL_CLIMATE_DIAGNOSTICS,
     TIMED_OPENING_SCHEMA,
+    build_runtime_key,
 )
 from .hvac_action_reason.hvac_action_reason import (
     SERVICE_SET_HVAC_ACTION_REASON,
@@ -211,6 +217,13 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_COOLER): cv.entity_id,
         vol.Required(CONF_SENSOR): cv.entity_id,
         vol.Optional(CONF_STALE_DURATION): vol.All(
+            cv.time_period, cv.positive_timedelta
+        ),
+        vol.Optional(CONF_ACTUATOR_STATE_TIMEOUT): vol.All(
+            cv.time_period, cv.positive_timedelta
+        ),
+        vol.Optional(CONF_TEMPERATURE_CHANGE_THRESHOLD): vol.Coerce(float),
+        vol.Optional(CONF_TEMPERATURE_CHANGE_DURATION): vol.All(
             cv.time_period, cv.positive_timedelta
         ),
         vol.Optional(CONF_OUTSIDE_SENSOR): cv.entity_id,
@@ -301,11 +314,23 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    """Set up the smart dual thermostat platform."""
+    """Set up the smart dual thermostat platform.
+
+    For YAML configurations we also load the companion diagnostic binary sensor
+    platform with the same thermostat config so fault entities appear alongside
+    the climate entity without requiring separate user configuration.
+    """
 
     await async_setup_reload_service(hass, DOMAIN, PLATFORMS)
     await _async_setup_config(
         hass, config, config.get(CONF_UNIQUE_ID), async_add_entities
+    )
+    await async_load_platform(
+        hass,
+        "binary_sensor",
+        DOMAIN,
+        {"config": dict(config)},
+        config,
     )
 
 
@@ -343,7 +368,13 @@ def _normalize_config_numeric_values(config: dict[str, Any]) -> dict[str, Any]:
     # Time-based keys that need conversion from seconds to timedelta
     # Config flow stores these as int/float (seconds) but code expects timedelta
     # After storage, Home Assistant may deserialize timedelta as dict with days/seconds/microseconds
-    time_keys = [CONF_KEEP_ALIVE, CONF_MIN_DUR, CONF_STALE_DURATION]
+    time_keys = [
+        CONF_KEEP_ALIVE,
+        CONF_MIN_DUR,
+        CONF_STALE_DURATION,
+        CONF_ACTUATOR_STATE_TIMEOUT,
+        CONF_TEMPERATURE_CHANGE_DURATION,
+    ]
 
     for key in time_keys:
         if key in config and config[key] is not None:
@@ -523,10 +554,12 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
         """Initialize the thermostat."""
         self._attr_name = name
         self._attr_unique_id = unique_id
+        self._runtime_key = build_runtime_key(name, unique_id)
 
         # hvac device
         self.hvac_device: ControlableHVACDevice = hvac_device
         self.hvac_device.set_context(self._context)
+        self.hvac_device.set_runtime_key(self._runtime_key)
 
         # preset manager
         self.presets = preset_manager
@@ -945,7 +978,40 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
             self._remove_stale_tracking()
         if self._remove_humidity_stale_tracking:
             self._remove_humidity_stale_tracking()
+        domain_data = self.hass.data.get(DOMAIN, {})
+        climate_diagnostics = domain_data.get("climate_diagnostics", {})
+        climate_diagnostics.pop(self._runtime_key, None)
         return await super().async_will_remove_from_hass()
+
+    @callback
+    def async_write_ha_state(self) -> None:
+        """Write entity state and publish a diagnostic snapshot."""
+        super().async_write_ha_state()
+        if not getattr(self, "hass", None):
+            return
+
+        payload = self._build_climate_diagnostics_payload()
+        domain_data = self.hass.data.setdefault(DOMAIN, {})
+        # Keep the latest climate snapshot in memory so diagnostic helpers added
+        # slightly later can bootstrap immediately instead of waiting for the
+        # next thermostat state write.
+        domain_data.setdefault("climate_diagnostics", {})[self._runtime_key] = payload
+        dispatcher_send(
+            self.hass,
+            SIGNAL_CLIMATE_DIAGNOSTICS.format(self._runtime_key),
+            payload,
+        )
+
+    def _build_climate_diagnostics_payload(self) -> dict[str, Any]:
+        """Build a lightweight snapshot used by diagnostic binary sensors."""
+        return {
+            "hvac_mode": self._hvac_mode,
+            "hvac_action": self.hvac_action,
+            "current_temperature": self.current_temperature,
+            "target_temperature": self._target_temp,
+            "target_temperature_low": self._target_temp_low,
+            "target_temperature_high": self._target_temp_high,
+        }
 
     @property
     def should_poll(self) -> bool:

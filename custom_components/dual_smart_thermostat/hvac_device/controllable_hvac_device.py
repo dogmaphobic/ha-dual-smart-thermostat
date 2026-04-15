@@ -20,6 +20,7 @@ class ControlableHVACDevice(ABC):
     _on_remove: list[CALLBACK_TYPE] | None = None
 
     _context = Context | None
+    _runtime_key: str | None = None
     _hvac_mode: HVACMode
     _HVACActionReason: HVACActionReason
 
@@ -66,6 +67,16 @@ class ControlableHVACDevice(ABC):
         if self._on_remove is None:
             self._on_remove = []
         self._on_remove.append(func)
+
+    def set_runtime_key(self, runtime_key: str) -> None:
+        """Set the shared runtime key used to correlate diagnostic entities.
+
+        The climate entity and all underlying actuator devices publish diagnostic
+        events keyed by this value so helper entities can subscribe without
+        depending on entity registry ids that may differ between YAML and config
+        entries.
+        """
+        self._runtime_key = runtime_key
 
     @callback
     def on_entity_state_change(self, entity_id: str, new_state: State) -> None:

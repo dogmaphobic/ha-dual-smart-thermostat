@@ -18,10 +18,14 @@ import voluptuous as vol
 DEFAULT_TOLERANCE = 0.3
 DEFAULT_NAME = "Dual Smart Thermostat"
 DEFAULT_MAX_FLOOR_TEMP = 28.0
+DEFAULT_ACTUATOR_STATE_TIMEOUT = 30.0
 
 MIN_CYCLE_KEEP_ALIVE = 60.0
 
 DOMAIN = "dual_smart_thermostat"
+
+SIGNAL_ACTUATOR_DIAGNOSTICS = f"{DOMAIN}_actuator_diagnostics_{{}}"
+SIGNAL_CLIMATE_DIAGNOSTICS = f"{DOMAIN}_climate_diagnostics_{{}}"
 
 # Configuration keys
 CONF_SYSTEM_TYPE = "system_type"
@@ -97,6 +101,9 @@ PERCENTAGE_TO_FAN_MODE = {
 
 CONF_SENSOR = "target_sensor"
 CONF_STALE_DURATION = "sensor_stale_duration"
+CONF_ACTUATOR_STATE_TIMEOUT = "actuator_state_timeout"
+CONF_TEMPERATURE_CHANGE_THRESHOLD = "temperature_change_threshold"
+CONF_TEMPERATURE_CHANGE_DURATION = "temperature_change_duration"
 CONF_FLOOR_SENSOR = "floor_sensor"
 CONF_OUTSIDE_SENSOR = "outside_sensor"
 CONF_MIN_TEMP = "min_temp"
@@ -175,3 +182,8 @@ class ToleranceDevice(enum.StrEnum):
     COOLER = "cooler"
     DRYER = "dryer"
     AUTO = "auto"
+
+
+def build_runtime_key(name: str, unique_id: str | None) -> str:
+    """Build a shared runtime key for climate and diagnostic entities."""
+    return str(unique_id or name)

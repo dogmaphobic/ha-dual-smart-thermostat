@@ -46,6 +46,12 @@ class MultiHvacDevice(HVACDevice, ControlableHVACDevice):
         for device in self.hvac_devices:
             device.set_context(context)
 
+    def set_runtime_key(self, runtime_key: str) -> None:
+        """Propagate the diagnostic runtime key to all child devices."""
+        super().set_runtime_key(runtime_key)
+        for device in self.hvac_devices:
+            device.set_runtime_key(runtime_key)
+
     def get_device_ids(self) -> list[str]:
         device_ids = []
         for device in self.hvac_devices:

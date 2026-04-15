@@ -14,6 +14,7 @@ import voluptuous as vol
 from .config_validation import validate_config_with_models
 from .const import (
     CONF_AC_MODE,
+    CONF_ACTUATOR_STATE_TIMEOUT,
     CONF_AUX_HEATER,
     CONF_AUX_HEATING_TIMEOUT,
     CONF_COOLER,
@@ -26,6 +27,7 @@ from .const import (
     CONF_PRESETS,
     CONF_SENSOR,
     CONF_SYSTEM_TYPE,
+    CONF_TEMPERATURE_CHANGE_DURATION,
     CONF_TEMP_STEP,
     DOMAIN,
     SYSTEM_TYPE_SIMPLE_HEATER,
@@ -132,10 +134,22 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         """
         from datetime import timedelta
 
-        from .const import CONF_KEEP_ALIVE, CONF_MIN_DUR, CONF_STALE_DURATION
+        from .const import (
+            CONF_KEEP_ALIVE,
+            CONF_MIN_DUR,
+            CONF_STALE_DURATION,
+            CONF_ACTUATOR_STATE_TIMEOUT,
+            CONF_TEMPERATURE_CHANGE_DURATION,
+        )
 
         # Time-based keys that may be serialized as dicts
-        time_keys = [CONF_KEEP_ALIVE, CONF_MIN_DUR, CONF_STALE_DURATION]
+        time_keys = [
+            CONF_KEEP_ALIVE,
+            CONF_MIN_DUR,
+            CONF_STALE_DURATION,
+            CONF_ACTUATOR_STATE_TIMEOUT,
+            CONF_TEMPERATURE_CHANGE_DURATION,
+        ]
 
         for key in time_keys:
             if key in config and config[key] is not None:
