@@ -52,6 +52,40 @@ Each example includes complete YAML configurations with detailed explanations, t
 If both [`heater`](#heater) and [`cooler`](#cooler) entities configured. The thermostat can control heating and cooling and you are able to set min/max low and min/max high temperatures.
 In this mode you can turn the thermostat to heat only, cooler only and back to heat/cool mode.
 
+## Shared Global Heat/Cool Mode
+
+Some installations have multiple indoor zones that share a single outdoor unit or other plant that can only be in one global mode at a time. For those cases you can point multiple heater/cooler thermostats at the same helper entity with `shared_hvac_mode_entity`.
+
+When configured:
+
+- Setting one participating thermostat to `heat` or `cool` updates the shared helper and every other participating thermostat follows that mode.
+- Setting one thermostat to `off` only turns that zone off locally. It does **not** force the shared helper to `off`.
+- If the shared helper itself changes to `off`, every participating thermostat goes effectively off, but zones that were participating remember that state and will resume when the shared helper returns to `heat` or `cool`.
+- Thermostats that were locally turned off stay off across shared mode changes until they are explicitly turned back on.
+
+Example:
+
+```yaml
+climate:
+  - platform: dual_smart_thermostat
+    name: North Bedroom
+    heater: switch.hvac01_relay2
+    cooler: switch.hvac01_relay3
+    target_sensor: sensor.north_bedroom_temperature
+    target_temp: 21
+    initial_hvac_mode: heat
+    shared_hvac_mode_entity: input_select.hvac_mode
+
+  - platform: dual_smart_thermostat
+    name: Family Room
+    heater: switch.hvac04_relay2
+    cooler: switch.hvac04_relay3
+    target_sensor: sensor.family_room_temperature
+    target_temp: 21
+    initial_hvac_mode: heat
+    shared_hvac_mode_entity: input_select.hvac_mode
+```
+
 ## Heat/Cool With Fan Mode
 
 If the [`fan`](#fan) entity is set the thermostat can control the fan mode of the AC. The fan will turn on when the temperature is above the target temperature and the fan_hot_tolerance is not reached. If the temperature is above the target temperature and the fan_hot_tolerance is reached the AC will turn on.

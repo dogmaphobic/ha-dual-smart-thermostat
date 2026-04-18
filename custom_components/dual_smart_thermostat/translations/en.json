@@ -131,6 +131,7 @@
                     "cooler": "Cooler switch",
                     "target_sensor": "Temperature sensor",
                     "heat_cool_mode": "Heat/Cool mode",
+                    "shared_hvac_mode_entity": "Shared HVAC mode helper",
                     "cold_tolerance": "Cold tolerance",
                     "hot_tolerance": "Hot tolerance",
                     "min_cycle_duration": "Minimum cycle duration"
@@ -141,6 +142,7 @@
                     "heater": "[Control Devices] Entity ID for heater switch, must be a toggle device. Used for heating when temperature falls below target.",
                     "cooler": "[Control Devices] Entity ID for cooler/AC switch, must be a toggle device. Used for cooling when temperature rises above target. Can be the same as heater for heat pump systems.",
                     "heat_cool_mode": "[Control Settings] Enable heat/cool mode with dual temperature control. When enabled, allows automatic switching between heating and cooling to maintain a comfortable temperature range.",
+                    "shared_hvac_mode_entity": "[Control Settings] Optional select/input_select helper that stores a single shared heat/cool/off mode for multiple thermostats. Thermostats using the same helper switch the global system mode together, while each zone can still be turned off locally and stay off until it is re-enabled.",
                     "cold_tolerance": "[Temperature Settings] Minimum temperature difference between sensor reading and target before turning on heating. Creates a buffer zone to prevent frequent switching.",
                     "hot_tolerance": "[Temperature Settings] Minimum temperature difference between sensor reading and target before turning on cooling. Creates a buffer zone to prevent frequent switching.",
                     "min_cycle_duration": "[Temperature Settings] Minimum time the switches must stay in their current state before being switched. Prevents rapid on/off cycling and protects equipment from damage."

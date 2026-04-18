@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
+from homeassistant.components.input_select import DOMAIN as INPUT_SELECT_DOMAIN
+from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
 from homeassistant.components.input_boolean import DOMAIN as INPUT_BOOLEAN_DOMAIN
 from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
 from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
@@ -54,6 +56,7 @@ from .const import (
     CONF_PRECISION,
     CONF_PRESETS,
     CONF_SENSOR,
+    CONF_SHARED_HVAC_MODE_ENTITY,
     CONF_SYSTEM_TYPE,
     CONF_TEMPERATURE_CHANGE_DURATION,
     CONF_TEMPERATURE_CHANGE_THRESHOLD,
@@ -494,6 +497,19 @@ def get_heater_cooler_schema(hass=None, defaults=None, include_name=True):
             default=defaults.get(CONF_HEAT_COOL_MODE, False) if defaults else False,
         )
     ] = get_boolean_selector()
+
+    # Optional shared mode helper for systems that must coordinate a single
+    # house-wide heat/cool mode while still allowing individual zones to be off.
+    core_schema[
+        vol.Optional(
+            CONF_SHARED_HVAC_MODE_ENTITY,
+            default=(
+                defaults.get(CONF_SHARED_HVAC_MODE_ENTITY)
+                if defaults
+                else vol.UNDEFINED
+            ),
+        )
+    ] = get_entity_selector([INPUT_SELECT_DOMAIN, SELECT_DOMAIN])
 
     # Tolerance fields OUTSIDE section (so defaults are pre-filled in UI)
     # Heater+cooler includes heat/cool tolerance overrides

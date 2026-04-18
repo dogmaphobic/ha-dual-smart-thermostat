@@ -19,6 +19,8 @@ from homeassistant.components.climate.const import (
     PRESET_NONE,
 )
 from homeassistant.components.humidifier import ATTR_HUMIDITY
+from homeassistant.components.input_select import DOMAIN as INPUT_SELECT_DOMAIN
+from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -71,6 +73,10 @@ from .const import (
     ATTR_PREV_TARGET,
     ATTR_PREV_TARGET_HIGH,
     ATTR_PREV_TARGET_LOW,
+    ATTR_SHARED_HVAC_FOLLOWING,
+    ATTR_SHARED_HVAC_MODE,
+    ATTR_SHARED_HVAC_MODE_ENTITY,
+    ATTR_SHARED_LAST_NON_OFF_HVAC_MODE,
     CONF_AC_MODE,
     CONF_AUX_HEATER,
     CONF_AUX_HEATING_DUAL_MODE,
@@ -115,6 +121,7 @@ from .const import (
     CONF_PRESETS,
     CONF_PRESETS_OLD,
     CONF_SENSOR,
+    CONF_SHARED_HVAC_MODE_ENTITY,
     CONF_STALE_DURATION,
     CONF_TEMPERATURE_CHANGE_DURATION,
     CONF_TEMPERATURE_CHANGE_THRESHOLD,
@@ -226,6 +233,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_TEMPERATURE_CHANGE_DURATION): vol.All(
             cv.time_period, cv.positive_timedelta
         ),
+        vol.Optional(CONF_SHARED_HVAC_MODE_ENTITY): cv.entity_id,
         vol.Optional(CONF_OUTSIDE_SENSOR): cv.entity_id,
         vol.Optional(CONF_AC_MODE): cv.boolean,
         vol.Optional(CONF_HEAT_COOL_MODE): cv.boolean,
@@ -439,6 +447,7 @@ async def _async_setup_config(
     sensor_humidity_entity_id = config.get(CONF_HUMIDITY_SENSOR)
     sensor_stale_duration: timedelta | None = config.get(CONF_STALE_DURATION)
     sensor_heat_pump_cooling_entity_id = config.get(CONF_HEAT_PUMP_COOLING)
+    shared_hvac_mode_entity_id = config.get(CONF_SHARED_HVAC_MODE_ENTITY)
     keep_alive = config.get(CONF_KEEP_ALIVE)
 
     # we ignore min cycle duration if keep alive is configured (conflicting config)
@@ -488,6 +497,7 @@ async def _async_setup_config(
                 precision,
                 unit,
                 unique_id,
+                shared_hvac_mode_entity_id,
                 hvac_device,
                 preset_manager,
                 environment_manager,
@@ -544,6 +554,7 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
         precision,
         unit,
         unique_id,
+        shared_hvac_mode_entity_id: str | None,
         hvac_device: ControlableHVACDevice,
         preset_manager: PresetManager,
         environment_manager: EnvironmentManager,
@@ -608,6 +619,17 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
         self._attr_hvac_modes = self.hvac_device.hvac_modes
         self._hvac_mode = self.hvac_device.hvac_mode
         self._last_hvac_mode = None
+        self._shared_hvac_mode_entity_id = shared_hvac_mode_entity_id
+        self._shared_hvac_mode: HVACMode | None = None
+        self._shared_last_non_off_hvac_mode: HVACMode | None = None
+        self._shared_following_global_mode = True
+        if self._shared_hvac_mode_entity_id and self._hvac_mode == HVACMode.OFF:
+            self._shared_following_global_mode = False
+        if self._shared_hvac_mode_entity_id and self._hvac_mode not in (
+            None,
+            HVACMode.OFF,
+        ):
+            self._shared_last_non_off_hvac_mode = self._hvac_mode
 
         # Initialize environment manager with initial HVAC mode for tolerance selection
         if self._hvac_mode:
@@ -826,6 +848,20 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
                 )
             )
 
+        if self._uses_shared_hvac_mode:
+            _LOGGER.debug(
+                "Adding shared HVAC mode listener: %s",
+                self._shared_hvac_mode_entity_id,
+            )
+            self.async_on_remove(
+                async_track_state_change_event(
+                    self.hass,
+                    [self._shared_hvac_mode_entity_id],
+                    self._async_shared_hvac_mode_changed_event,
+                )
+            )
+            self._refresh_shared_hvac_mode_from_entity()
+
         if self._keep_alive or self._has_min_cycle:
             if self._keep_alive:
                 self.async_on_remove(
@@ -912,13 +948,17 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
             if hvac_mode not in self.hvac_modes:
                 hvac_mode = HVACMode.OFF
 
+            if self._uses_shared_hvac_mode:
+                self._restore_shared_hvac_state(old_state, hvac_mode)
+                hvac_mode = self._get_effective_shared_hvac_mode(hvac_mode)
+
             self.features.apply_old_state(old_state, hvac_mode, self.presets.presets)
             self._attr_supported_features = self.features.supported_features
 
             self.environment.set_default_target_temps(
                 self.features.is_target_mode,
                 self.features.is_range_mode,
-                self._hvac_mode,
+                hvac_mode,
             )
 
             # Set correct support flag as the following actions depend on it
@@ -929,7 +969,13 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
             self._attr_preset_mode = self.presets.preset_mode
 
             _LOGGER.debug("restoring hvac_mode: %s", hvac_mode)
-            await self.async_set_hvac_mode(hvac_mode, is_restore=True)
+            if self._uses_shared_hvac_mode:
+                await self._async_sync_from_shared_hvac_mode(
+                    is_restore=True,
+                    fallback_mode=hvac_mode,
+                )
+            else:
+                await self.async_set_hvac_mode(hvac_mode, is_restore=True)
 
             _LOGGER.debug(
                 "startup hvac_action_reason: %s",
@@ -952,6 +998,11 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
 
             if self.environment.max_floor_temp is None:
                 self.environment.max_floor_temp = DEFAULT_MAX_FLOOR_TEMP
+            if self._uses_shared_hvac_mode:
+                await self._async_sync_from_shared_hvac_mode(
+                    is_restore=True,
+                    fallback_mode=self._hvac_mode or HVACMode.OFF,
+                )
 
         # Set correct support flag
         self._set_support_flags()
@@ -1012,6 +1063,222 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
             "target_temperature_low": self._target_temp_low,
             "target_temperature_high": self._target_temp_high,
         }
+
+    @property
+    def _uses_shared_hvac_mode(self) -> bool:
+        """Return True when this thermostat follows a shared heat/cool helper."""
+        return self._shared_hvac_mode_entity_id is not None
+
+    def _normalize_shared_hvac_mode(
+        self, raw_mode: str | HVACMode | None
+    ) -> HVACMode | None:
+        """Convert a helper state into a supported HVAC mode.
+
+        The shared helper is expected to expose `off`, `heat`, or `cool`. Invalid
+        or unavailable states are ignored so transient helper startup glitches do
+        not unexpectedly force zones off.
+        """
+        if raw_mode in (None, STATE_UNKNOWN, STATE_UNAVAILABLE):
+            return None
+
+        try:
+            hvac_mode = HVACMode(raw_mode)
+        except ValueError:
+            _LOGGER.debug(
+                "%s: Ignoring unsupported shared HVAC helper state %s",
+                self.entity_id,
+                raw_mode,
+            )
+            return None
+
+        if hvac_mode not in self.hvac_modes:
+            _LOGGER.debug(
+                "%s: Shared HVAC helper state %s is unsupported by this thermostat",
+                self.entity_id,
+                hvac_mode,
+            )
+            return None
+
+        return hvac_mode
+
+    def _update_shared_hvac_mode_from_state(
+        self, state: State | None
+    ) -> HVACMode | None:
+        """Refresh the cached shared HVAC mode from an entity state object."""
+        shared_mode = self._normalize_shared_hvac_mode(state.state if state else None)
+        if shared_mode is None:
+            return self._shared_hvac_mode
+
+        self._shared_hvac_mode = shared_mode
+        if shared_mode != HVACMode.OFF:
+            self._shared_last_non_off_hvac_mode = shared_mode
+        return self._shared_hvac_mode
+
+    def _refresh_shared_hvac_mode_from_entity(self) -> HVACMode | None:
+        """Read the latest mode from the configured shared helper entity."""
+        if not self._uses_shared_hvac_mode:
+            return None
+
+        return self._update_shared_hvac_mode_from_state(
+            self.hass.states.get(self._shared_hvac_mode_entity_id)
+        )
+
+    def _get_effective_shared_hvac_mode(
+        self, fallback_mode: HVACMode | None = None
+    ) -> HVACMode:
+        """Return the HVAC mode that should actually drive this thermostat.
+
+        Shared-mode thermostats separate the global system mode from the local
+        zone state:
+        - the helper entity stores the house-wide heat/cool/off mode
+        - each thermostat stores whether that zone is currently participating
+
+        If a zone is locally off, it stays off even while the shared helper
+        changes between heat and cool.
+        """
+        if not self._shared_following_global_mode:
+            return HVACMode.OFF
+
+        if self._shared_hvac_mode is not None:
+            return self._shared_hvac_mode
+
+        if fallback_mode in self.hvac_modes:
+            return fallback_mode
+
+        return HVACMode.OFF
+
+    def _restore_shared_hvac_state(
+        self, old_state: State, restored_hvac_mode: HVACMode
+    ) -> None:
+        """Restore the per-zone shared-mode state kept in entity attributes."""
+        shared_following = old_state.attributes.get(ATTR_SHARED_HVAC_FOLLOWING)
+        if shared_following is None:
+            shared_following = restored_hvac_mode != HVACMode.OFF
+        self._shared_following_global_mode = bool(shared_following)
+
+        restored_shared_mode = self._normalize_shared_hvac_mode(
+            old_state.attributes.get(ATTR_SHARED_HVAC_MODE)
+        )
+        if restored_shared_mode is not None:
+            self._shared_hvac_mode = restored_shared_mode
+
+        restored_last_non_off = self._normalize_shared_hvac_mode(
+            old_state.attributes.get(ATTR_SHARED_LAST_NON_OFF_HVAC_MODE)
+        )
+        if restored_last_non_off not in (None, HVACMode.OFF):
+            self._shared_last_non_off_hvac_mode = restored_last_non_off
+        elif restored_hvac_mode != HVACMode.OFF:
+            self._shared_last_non_off_hvac_mode = restored_hvac_mode
+
+    async def _async_apply_effective_hvac_mode(
+        self,
+        hvac_mode: HVACMode,
+        *,
+        is_restore: bool = False,
+        remember_last_mode: bool = True,
+    ) -> None:
+        """Apply the already-resolved HVAC mode to the thermostat internals.
+
+        This is the low-level mode applier used after shared-mode coordination
+        has already decided what the effective local mode should be.
+        """
+        _LOGGER.info("%s: Applying effective hvac mode: %s", self.entity_id, hvac_mode)
+
+        if hvac_mode not in self.hvac_modes:
+            _LOGGER.debug("%s: Unrecognized hvac mode: %s", self.entity_id, hvac_mode)
+            return
+
+        if (
+            self._hvac_mode == hvac_mode
+            and self.hvac_device.hvac_mode == hvac_mode
+            and not is_restore
+        ):
+            self._set_support_flags()
+            self.environment.set_hvac_mode(hvac_mode)
+            self.async_write_ha_state()
+            return
+
+        if hvac_mode == HVACMode.OFF and remember_last_mode:
+            previous_mode = self.hvac_device.hvac_mode
+            if previous_mode not in (None, HVACMode.OFF):
+                self._last_hvac_mode = previous_mode
+                if self._uses_shared_hvac_mode:
+                    self._shared_last_non_off_hvac_mode = previous_mode
+            _LOGGER.info(
+                "%s: Turning off with saving last hvac mode: %s",
+                self.entity_id,
+                self._last_hvac_mode,
+            )
+        elif hvac_mode != HVACMode.OFF and self._uses_shared_hvac_mode:
+            self._shared_last_non_off_hvac_mode = hvac_mode
+
+        self._hvac_mode = hvac_mode
+        self._set_support_flags()
+
+        # Update environment manager with new HVAC mode for tolerance selection.
+        self.environment.set_hvac_mode(hvac_mode)
+
+        if not is_restore:
+            self.environment.set_temepratures_from_hvac_mode_and_presets(
+                self._hvac_mode,
+                self.features.hvac_modes_support_range_temp(self._attr_hvac_modes),
+                self.presets.preset_mode,
+                self.presets.preset_env,
+                self.features.is_range_mode,
+            )
+
+        self._target_humidity = self.environment.target_humidity
+
+        await self.hvac_device.async_set_hvac_mode(hvac_mode)
+
+        self._hvac_action_reason = self.hvac_device.HVACActionReason
+        self.async_write_ha_state()
+
+    async def _async_set_shared_hvac_mode_entity(
+        self, hvac_mode: HVACMode
+    ) -> HVACMode | None:
+        """Push a new global mode to the shared helper entity."""
+        if not self._uses_shared_hvac_mode:
+            return None
+
+        helper_domain = self._shared_hvac_mode_entity_id.split(".", 1)[0]
+        if helper_domain not in (INPUT_SELECT_DOMAIN, SELECT_DOMAIN):
+            _LOGGER.error(
+                "%s: Shared HVAC helper %s must be a select or input_select entity",
+                self.entity_id,
+                self._shared_hvac_mode_entity_id,
+            )
+            return self._shared_hvac_mode
+
+        await self.hass.services.async_call(
+            helper_domain,
+            "select_option",
+            {
+                ATTR_ENTITY_ID: self._shared_hvac_mode_entity_id,
+                "option": hvac_mode,
+            },
+            context=self._context,
+            blocking=True,
+        )
+
+        return self._refresh_shared_hvac_mode_from_entity()
+
+    async def _async_sync_from_shared_hvac_mode(
+        self,
+        *,
+        is_restore: bool = False,
+        fallback_mode: HVACMode | None = None,
+    ) -> None:
+        """Recompute and apply the local effective mode from shared state."""
+        if not self._uses_shared_hvac_mode:
+            return
+
+        effective_mode = self._get_effective_shared_hvac_mode(fallback_mode)
+        await self._async_apply_effective_hvac_mode(
+            effective_mode,
+            is_restore=is_restore,
+            remember_last_mode=False,
+        )
 
     @property
     def should_poll(self) -> bool:
@@ -1165,6 +1432,20 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
             attributes[ATTR_HVAC_POWER_LEVEL] = self.power_manager.hvac_power_level
             attributes[ATTR_HVAC_POWER_PERCENT] = self.power_manager.hvac_power_percent
 
+        if self._uses_shared_hvac_mode:
+            attributes[ATTR_SHARED_HVAC_MODE_ENTITY] = (
+                self._shared_hvac_mode_entity_id
+            )
+            attributes[ATTR_SHARED_HVAC_FOLLOWING] = (
+                self._shared_following_global_mode
+            )
+            if self._shared_hvac_mode is not None:
+                attributes[ATTR_SHARED_HVAC_MODE] = self._shared_hvac_mode
+            if self._shared_last_non_off_hvac_mode is not None:
+                attributes[ATTR_SHARED_LAST_NON_OFF_HVAC_MODE] = (
+                    self._shared_last_non_off_hvac_mode
+                )
+
         _LOGGER.debug("Extra state attributes: %s", attributes)
 
         return attributes
@@ -1224,44 +1505,48 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
     async def async_set_hvac_mode(
         self, hvac_mode: HVACMode, is_restore: bool = False
     ) -> None:
-        """Call climate mode based on current mode."""
+        """Set HVAC mode, optionally coordinating through a shared mode helper."""
         _LOGGER.info("%s: Setting hvac mode: %s", self.entity_id, hvac_mode)
 
         if hvac_mode not in self.hvac_modes:
             _LOGGER.debug("%s: Unrecognized hvac mode: %s", self.entity_id, hvac_mode)
             return
 
+        if not self._uses_shared_hvac_mode:
+            await self._async_apply_effective_hvac_mode(
+                hvac_mode,
+                is_restore=is_restore,
+            )
+            return
+
+        if is_restore:
+            await self._async_sync_from_shared_hvac_mode(
+                is_restore=True,
+                fallback_mode=hvac_mode,
+            )
+            return
+
         if hvac_mode == HVACMode.OFF:
-            self._last_hvac_mode = self.hvac_device.hvac_mode
-            _LOGGER.info(
-                "%s: Turning off with saving last hvac mode: %s",
-                self.entity_id,
-                self._last_hvac_mode,
+            if self.hvac_device.hvac_mode not in (None, HVACMode.OFF):
+                self._last_hvac_mode = self.hvac_device.hvac_mode
+                self._shared_last_non_off_hvac_mode = self.hvac_device.hvac_mode
+            self._shared_following_global_mode = False
+            await self._async_apply_effective_hvac_mode(
+                HVACMode.OFF,
+                remember_last_mode=False,
             )
+            return
 
-        self._hvac_mode = hvac_mode
-        self._set_support_flags()
+        self._shared_following_global_mode = True
+        self._shared_last_non_off_hvac_mode = hvac_mode
 
-        # Update environment manager with new HVAC mode for tolerance selection
-        self.environment.set_hvac_mode(hvac_mode)
+        self._refresh_shared_hvac_mode_from_entity()
+        if self._shared_hvac_mode == hvac_mode:
+            await self._async_sync_from_shared_hvac_mode(fallback_mode=hvac_mode)
+            return
 
-        if not is_restore:
-            self.environment.set_temepratures_from_hvac_mode_and_presets(
-                self._hvac_mode,
-                self.features.hvac_modes_support_range_temp(self._attr_hvac_modes),
-                self.presets.preset_mode,
-                self.presets.preset_env,
-                self.features.is_range_mode,
-            )
-
-        self._target_humidity = self.environment.target_humidity
-
-        await self.hvac_device.async_set_hvac_mode(hvac_mode)
-
-        self._hvac_action_reason = self.hvac_device.HVACActionReason
-
-        # Ensure we update the current operation after changing the mode
-        self.async_write_ha_state()
+        await self._async_set_shared_hvac_mode_entity(hvac_mode)
+        await self._async_sync_from_shared_hvac_mode(fallback_mode=hvac_mode)
 
     async def async_set_temperature(self, **kwargs) -> None:
         """Set new target temperature."""
@@ -1562,6 +1847,13 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
             await self._async_control_climate()
         self.async_write_ha_state()
 
+    async def _async_shared_hvac_mode_changed_event(
+        self, event: Event[EventStateChangedData]
+    ) -> None:
+        """Handle changes to the configured shared HVAC mode helper."""
+        self._update_shared_hvac_mode_from_state(event.data.get("new_state"))
+        await self._async_sync_from_shared_hvac_mode()
+
     async def _check_device_initial_state(self) -> None:
         """Prevent the device from keep running if HVACMode.OFF."""
         _LOGGER.debug("Checking device initial state")
@@ -1767,10 +2059,31 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
 
     async def async_turn_on(self) -> None:
         """Turn on the device."""
-        _LOGGER.info("Turning on with last hvac mode: %s", self._last_hvac_mode)
-        if self._last_hvac_mode is not None and self._last_hvac_mode != HVACMode.OFF:
-            on_hvac_mode = self._last_hvac_mode
+        if self._uses_shared_hvac_mode:
+            self._shared_following_global_mode = True
+            shared_mode = self._refresh_shared_hvac_mode_from_entity()
+            if shared_mode not in (None, HVACMode.OFF):
+                await self._async_sync_from_shared_hvac_mode(
+                    fallback_mode=shared_mode,
+                )
+                return
+
+            if (
+                self._shared_last_non_off_hvac_mode is not None
+                and self._shared_last_non_off_hvac_mode != HVACMode.OFF
+            ):
+                on_hvac_mode = self._shared_last_non_off_hvac_mode
+            else:
+                on_hvac_mode = None
         else:
+            on_hvac_mode = None
+
+        _LOGGER.info("Turning on with last hvac mode: %s", self._last_hvac_mode)
+        if on_hvac_mode is None and (
+            self._last_hvac_mode is not None and self._last_hvac_mode != HVACMode.OFF
+        ):
+            on_hvac_mode = self._last_hvac_mode
+        elif on_hvac_mode is None:
             device_hvac_modes_not_off = [
                 mode for mode in self.hvac_device.hvac_modes if mode != HVACMode.OFF
             ]

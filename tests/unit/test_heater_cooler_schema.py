@@ -16,6 +16,7 @@ from custom_components.dual_smart_thermostat.const import (
     CONF_HOT_TOLERANCE,
     CONF_MIN_DUR,
     CONF_SENSOR,
+    CONF_SHARED_HVAC_MODE_ENTITY,
 )
 from custom_components.dual_smart_thermostat.schemas import get_heater_cooler_schema
 
@@ -39,6 +40,7 @@ class TestHeaterCoolerSchema:
         assert CONF_HEATER in field_names
         assert CONF_COOLER in field_names
         assert CONF_HEAT_COOL_MODE in field_names
+        assert CONF_SHARED_HVAC_MODE_ENTITY in field_names
 
     def test_schema_with_include_name_false_omits_name_field(self):
         """Test that schema omits name field when include_name=False.
@@ -67,6 +69,7 @@ class TestHeaterCoolerSchema:
             CONF_HEATER: "switch.test_heater",
             CONF_COOLER: "switch.test_cooler",
             CONF_HEAT_COOL_MODE: True,
+            CONF_SHARED_HVAC_MODE_ENTITY: "input_select.shared_hvac_mode",
             CONF_COLD_TOLERANCE: 0.7,
             CONF_HOT_TOLERANCE: 0.8,
             CONF_MIN_DUR: 600,
