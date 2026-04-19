@@ -71,7 +71,7 @@ class HeaterAUXHeaterDevice(MultiHvacDevice):
 
     async def _async_control_devices_when_off(self, time=None) -> None:
         """Check if we need to turn heating on or off when the heater is off."""
-        _LOGGER.info("%s Controlling hvac while off", self.__class__.__name__)
+        _LOGGER.debug("%s Controlling hvac while off", self.__class__.__name__)
 
         too_cold = self.environment.is_too_cold(self._target_env_attr)
         is_floor_hot = self.environment.is_floor_hot
@@ -141,7 +141,7 @@ class HeaterAUXHeaterDevice(MultiHvacDevice):
 
     async def _async_control_devices_when_on(self, time=None) -> None:
         """Check if we need to turn heating on or off when the heater is off."""
-        _LOGGER.info("%s Controlling hvac while on", self.__class__.__name__)
+        _LOGGER.debug("%s Controlling hvac while on", self.__class__.__name__)
 
         too_hot = self.environment.is_too_hot(self._target_env_attr)
         is_floor_hot = self.environment.is_floor_hot

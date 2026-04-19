@@ -44,7 +44,7 @@ class HeaterHvacConroller(GenericHvacController):
     ) -> None:
         """Check if we need to turn heating on or off when theheater is on."""
 
-        _LOGGER.info("%s Controlling hvac while on", self.__class__.__name__)
+        _LOGGER.debug("%s Controlling hvac while on", self.__class__.__name__)
 
         too_hot = strategy.hvac_goal_reached
         is_floor_hot = self._environment.is_floor_hot
@@ -83,7 +83,7 @@ class HeaterHvacConroller(GenericHvacController):
         time=None,
     ) -> None:
         """Check if we need to turn heating on or off when the heater is off."""
-        _LOGGER.info("%s Controlling hvac while off", self.__class__.__name__)
+        _LOGGER.debug("%s Controlling hvac while off", self.__class__.__name__)
 
         too_cold = strategy.hvac_goal_not_reached
         _LOGGER.debug("too_cold: %s", strategy.hvac_goal_reached)
