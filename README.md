@@ -73,7 +73,7 @@ climate:
     cooler: switch.hvac01_relay3
     target_sensor: sensor.north_bedroom_temperature
     target_temp: 21
-    initial_hvac_mode: heat
+    initial_hvac_mode: "off"
     shared_hvac_mode_entity: input_select.hvac_mode
 
   - platform: dual_smart_thermostat
@@ -82,7 +82,7 @@ climate:
     cooler: switch.hvac04_relay3
     target_sensor: sensor.family_room_temperature
     target_temp: 21
-    initial_hvac_mode: heat
+    initial_hvac_mode: "off"
     shared_hvac_mode_entity: input_select.hvac_mode
 ```
 
@@ -951,9 +951,9 @@ The internal values can be set by the component only and the external values can
 
 ### initial_hvac_mode
 
-  _(optional) (string)_ Set the initial HVAC mode. Valid values are `off`, `heat`, `cool` or `heat_cool`. Value has to be double quoted. If this parameter is not set, it is preferable to set a _keep_alive_ value. This is helpful to align any discrepancies between _dual_smart_thermostat_ _heater_ and _cooler_ state.
+  _(optional) (string)_ Set the initial HVAC mode for a thermostat that has no saved Home Assistant state yet. Valid values are `off`, `heat`, `cool` or `heat_cool`. Value has to be double quoted. If this parameter is not set, it is preferable to set a _keep_alive_ value. This is helpful to align any discrepancies between _dual_smart_thermostat_ _heater_ and _cooler_ state.
 
-  **NOTE! If this is set, the saved state will not be restored after HA restarts.**
+  When Home Assistant has a saved state for the thermostat, that saved state is restored first. `initial_hvac_mode` is only a cold-start default.
 
 ### actuator_state_timeout
 
@@ -1334,7 +1334,7 @@ climate:
     temperature_change_threshold: 1.0
     temperature_change_duration:
       minutes: 30
-    initial_hvac_mode: "off" # hvac mode will reset to this value after restart
+    initial_hvac_mode: "off" # used only when no previous HA state exists
     away: # this preset will be available for all hvac modes
       temperature: 13
       target_temp_low: 12

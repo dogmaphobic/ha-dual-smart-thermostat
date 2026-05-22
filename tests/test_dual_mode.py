@@ -218,6 +218,7 @@ async def test_restore_state_while_off(hass: HomeAssistant) -> None:
                 "cooler": common.ENT_COOLER,
                 "target_sensor": common.ENT_SENSOR,
                 "target_temp": 19.5,
+                "initial_hvac_mode": HVACMode.HEAT,
             }
         },
     )

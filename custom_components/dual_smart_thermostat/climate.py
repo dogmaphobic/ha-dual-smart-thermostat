@@ -943,7 +943,7 @@ class DualSmartThermostat(ClimateEntity, RestoreEntity):
             # If we have no initial temperature, restore
             self.environment.apply_old_state(old_state)
 
-            hvac_mode = self._hvac_mode or old_state.state or HVACMode.OFF
+            hvac_mode = old_state.state or self._hvac_mode or HVACMode.OFF
 
             if hvac_mode not in self.hvac_modes:
                 hvac_mode = HVACMode.OFF
