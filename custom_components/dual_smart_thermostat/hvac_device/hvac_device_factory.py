@@ -5,6 +5,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.typing import ConfigType
 
 from ..const import (
+    CONF_AUX_COOLER,
+    CONF_AUX_COOLING_DUAL_MODE,
+    CONF_AUX_COOLING_TIMEOUT,
     CONF_AUX_HEATER,
     CONF_AUX_HEATING_DUAL_MODE,
     CONF_AUX_HEATING_TIMEOUT,
@@ -18,6 +21,7 @@ from ..const import (
     CONF_MIN_DUR,
 )
 from ..hvac_device.controllable_hvac_device import ControlableHVACDevice
+from ..hvac_device.cooler_aux_cooler_device import CoolerAUXCoolerDevice
 from ..hvac_device.cooler_device import CoolerDevice
 from ..hvac_device.cooler_fan_device import CoolerFanDevice
 from ..hvac_device.dryer_device import DryerDevice
@@ -65,6 +69,9 @@ class HVACDeviceFactory:
         self._aux_heater_entity_id = config.get(CONF_AUX_HEATER)
         self._aux_heater_dual_mode = config.get(CONF_AUX_HEATING_DUAL_MODE)
         self._aux_heater_timeout = config.get(CONF_AUX_HEATING_TIMEOUT)
+        self._aux_cooler_entity_id = config.get(CONF_AUX_COOLER)
+        self._aux_cooler_dual_mode = config.get(CONF_AUX_COOLING_DUAL_MODE)
+        self._aux_cooler_timeout = config.get(CONF_AUX_COOLING_TIMEOUT)
 
         self._min_cycle_duration: timedelta = config.get(CONF_MIN_DUR)
 
@@ -80,6 +87,7 @@ class HVACDeviceFactory:
         dryer_device = None
         fan_device = None
         cooler_device = None
+        aux_cooler_device = None
         heater_device = None
         aux_heater_device = None
 
@@ -131,6 +139,18 @@ class HVACDeviceFactory:
                 hvac_power,
             )
 
+        if self._features.is_configured_for_aux_cooling_mode:
+            aux_cooler_device = CoolerDevice(
+                self.hass,
+                self._aux_cooler_entity_id,
+                self._min_cycle_duration,
+                self._initial_hvac_mode,
+                environment,
+                openings,
+                self._features,
+                hvac_power,
+            )
+
         if self._features.is_configured_for_dual_mode:
             cooler_entity_id = self._cooler_entity_id
         else:
@@ -142,6 +162,17 @@ class HVACDeviceFactory:
         ):
             cooler_device = self._create_cooler_device(
                 environment, openings, hvac_power, cooler_entity_id, fan_device
+            )
+
+        if aux_cooler_device and cooler_device:
+            _LOGGER.info("Creating cooler aux cooler device")
+            cooler_device = CoolerAUXCoolerDevice(
+                self.hass,
+                [cooler_device, aux_cooler_device],
+                self._initial_hvac_mode,
+                environment,
+                openings,
+                self._features,
             )
 
         if (

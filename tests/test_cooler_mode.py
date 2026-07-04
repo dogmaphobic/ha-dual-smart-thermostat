@@ -1803,3 +1803,90 @@ async def test_legacy_config_cool_mode_behaves_identically(
     await hass.async_block_till_done()
 
     assert hass.states.get(cooler_switch).state == STATE_OFF
+
+
+async def test_cooler_mode_aux_cooler_keep_primary_cooler_on(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, setup_comp_1  # noqa: F811
+) -> None:
+    """Test secondary cooler turns on with primary cooler in dual mode."""
+
+    secondary_cooler_timeout = 10
+    heater_switch = "input_boolean.heater_switch"
+    cooler_switch = "input_boolean.cooler_switch"
+    secondary_cooler_switch = "input_boolean.secondary_cooler_switch"
+
+    assert await async_setup_component(
+        hass,
+        input_boolean.DOMAIN,
+        {
+            "input_boolean": {
+                "heater_switch": None,
+                "cooler_switch": None,
+                "secondary_cooler_switch": None,
+            }
+        },
+    )
+
+    assert await async_setup_component(
+        hass,
+        input_number.DOMAIN,
+        {
+            "input_number": {
+                "temp": {"name": "test", "initial": 10, "min": 0, "max": 40, "step": 1}
+            }
+        },
+    )
+
+    assert await async_setup_component(
+        hass,
+        CLIMATE,
+        {
+            "climate": {
+                "platform": DOMAIN,
+                "name": "test",
+                "heater": heater_switch,
+                "cooler": cooler_switch,
+                "secondary_cooler": secondary_cooler_switch,
+                "secondary_cooler_timeout": {"seconds": secondary_cooler_timeout},
+                "secondary_cooler_dual_mode": True,
+                "target_sensor": common.ENT_SENSOR,
+                "initial_hvac_mode": HVACMode.COOL,
+                "cold_tolerance": 0.5,
+                "hot_tolerance": 0.5,
+            }
+        },
+    )
+    await hass.async_block_till_done()
+
+    setup_sensor(hass, 30)
+    await common.async_set_temperature(hass, 25)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(cooler_switch).state == STATE_ON
+    assert hass.states.get(secondary_cooler_switch).state == STATE_OFF
+
+    freezer.tick(timedelta(seconds=secondary_cooler_timeout - 4))
+    common.async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(cooler_switch).state == STATE_ON
+    assert hass.states.get(secondary_cooler_switch).state == STATE_OFF
+
+    freezer.tick(timedelta(seconds=secondary_cooler_timeout + 5))
+    common.async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(cooler_switch).state == STATE_ON
+    assert hass.states.get(secondary_cooler_switch).state == STATE_ON
+
+    setup_sensor(hass, 24.4)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(cooler_switch).state == STATE_OFF
+    assert hass.states.get(secondary_cooler_switch).state == STATE_OFF
+
+    setup_sensor(hass, 30)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(cooler_switch).state == STATE_ON
+    assert hass.states.get(secondary_cooler_switch).state == STATE_OFF

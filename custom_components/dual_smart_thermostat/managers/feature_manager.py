@@ -18,6 +18,9 @@ if TYPE_CHECKING:
 from ..const import (
     ATTR_FAN_MODE,
     CONF_AC_MODE,
+    CONF_AUX_COOLER,
+    CONF_AUX_COOLING_DUAL_MODE,
+    CONF_AUX_COOLING_TIMEOUT,
     CONF_AUX_HEATER,
     CONF_AUX_HEATING_DUAL_MODE,
     CONF_AUX_HEATING_TIMEOUT,
@@ -70,6 +73,9 @@ class FeatureManager(StateManager):
         self._aux_heater_entity_id = config.get(CONF_AUX_HEATER)
         self._aux_heater_timeout = config.get(CONF_AUX_HEATING_TIMEOUT)
         self._aux_heater_dual_mode = config.get(CONF_AUX_HEATING_DUAL_MODE)
+        self._aux_cooler_entity_id = config.get(CONF_AUX_COOLER)
+        self._aux_cooler_timeout = config.get(CONF_AUX_COOLING_TIMEOUT)
+        self._aux_cooler_dual_mode = config.get(CONF_AUX_COOLING_DUAL_MODE)
 
         self._heat_cool_mode = config.get(CONF_HEAT_COOL_MODE)
         self._default_support_flags = (
@@ -156,6 +162,27 @@ class FeatureManager(StateManager):
     def aux_heater_dual_mode(self) -> bool:
         """Return the aux heater dual mode."""
         return self._aux_heater_dual_mode
+
+    @property
+    def is_configured_for_aux_cooling_mode(self) -> bool:
+        """Determines if the aux cooler is configured."""
+        if self._aux_cooler_entity_id is None:
+            return False
+
+        if self._aux_cooler_timeout is None:
+            return False
+
+        return True
+
+    @property
+    def aux_cooler_timeout(self) -> int:
+        """Return the aux cooler timeout."""
+        return self._aux_cooler_timeout
+
+    @property
+    def aux_cooler_dual_mode(self) -> bool:
+        """Return the aux cooler dual mode."""
+        return self._aux_cooler_dual_mode
 
     @property
     def is_configured_for_fan_mode(self) -> bool:

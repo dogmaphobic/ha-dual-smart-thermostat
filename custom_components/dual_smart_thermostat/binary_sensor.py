@@ -41,6 +41,7 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from .const import (
     CONF_ACTUATOR_STATE_TIMEOUT,
+    CONF_AUX_COOLER,
     CONF_AUX_HEATER,
     CONF_COOLER,
     CONF_HEATER,
@@ -92,7 +93,7 @@ def _normalize_config_values(config: dict[str, Any]) -> dict[str, Any]:
 def _get_monitored_actuator_ids(config: dict[str, Any]) -> list[str]:
     """Return the actuator entity IDs relevant for heating and cooling."""
     entity_ids: list[str] = []
-    for key in (CONF_HEATER, CONF_COOLER, CONF_AUX_HEATER):
+    for key in (CONF_HEATER, CONF_COOLER, CONF_AUX_HEATER, CONF_AUX_COOLER):
         entity_id = config.get(key)
         if entity_id and entity_id not in entity_ids:
             entity_ids.append(entity_id)

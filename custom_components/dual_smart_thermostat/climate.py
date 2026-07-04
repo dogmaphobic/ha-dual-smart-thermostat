@@ -78,6 +78,9 @@ from .const import (
     ATTR_SHARED_HVAC_MODE_ENTITY,
     ATTR_SHARED_LAST_NON_OFF_HVAC_MODE,
     CONF_AC_MODE,
+    CONF_AUX_COOLER,
+    CONF_AUX_COOLING_DUAL_MODE,
+    CONF_AUX_COOLING_TIMEOUT,
     CONF_AUX_HEATER,
     CONF_AUX_HEATING_DUAL_MODE,
     CONF_AUX_HEATING_TIMEOUT,
@@ -169,6 +172,14 @@ SECONDARY_HEATING_SCHEMA = {
     vol.Optional(CONF_AUX_HEATER): cv.entity_id,
     vol.Optional(CONF_AUX_HEATING_DUAL_MODE): cv.boolean,
     vol.Optional(CONF_AUX_HEATING_TIMEOUT): vol.All(
+        cv.time_period, cv.positive_timedelta
+    ),
+}
+
+SECONDARY_COOLING_SCHEMA = {
+    vol.Optional(CONF_AUX_COOLER): cv.entity_id,
+    vol.Optional(CONF_AUX_COOLING_DUAL_MODE): cv.boolean,
+    vol.Optional(CONF_AUX_COOLING_TIMEOUT): vol.All(
         cv.time_period, cv.positive_timedelta
     ),
 }
@@ -270,6 +281,8 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 ).extend({vol.Optional(v): PRESET_SCHEMA for (k, v) in CONF_PRESETS.items()})
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(SECONDARY_HEATING_SCHEMA)
+
+PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(SECONDARY_COOLING_SCHEMA)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(FLOOR_TEMPERATURE_SCHEMA)
 
@@ -377,6 +390,8 @@ def _normalize_config_numeric_values(config: dict[str, Any]) -> dict[str, Any]:
     # Config flow stores these as int/float (seconds) but code expects timedelta
     # After storage, Home Assistant may deserialize timedelta as dict with days/seconds/microseconds
     time_keys = [
+        CONF_AUX_COOLING_TIMEOUT,
+        CONF_AUX_HEATING_TIMEOUT,
         CONF_KEEP_ALIVE,
         CONF_MIN_DUR,
         CONF_STALE_DURATION,
