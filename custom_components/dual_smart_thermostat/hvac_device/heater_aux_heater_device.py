@@ -17,6 +17,8 @@ from ..managers.opening_manager import OpeningManager
 
 _LOGGER = logging.getLogger(__name__)
 
+IMMEDIATE_STAGE2_DIFFERENTIAL = 5.0
+
 
 class HeaterAUXHeaterDevice(MultiHvacDevice):
 
@@ -92,7 +94,16 @@ class HeaterAUXHeaterDevice(MultiHvacDevice):
 
         if (too_cold and not any_opening_open and not is_floor_hot) or is_floor_cold:
 
-            if self._has_aux_heating_ran_today:
+            if (
+                not is_floor_cold
+                and self._heating_differential_exceeds_stage2_threshold
+            ):
+                _LOGGER.info(
+                    "Heating differential exceeds %.1f degrees; starting aux heater immediately",
+                    IMMEDIATE_STAGE2_DIFFERENTIAL,
+                )
+                await self._async_turn_on_aux_heater()
+            elif self._has_aux_heating_ran_today:
                 await self._async_handle_aux_heater_ran_today()
             else:
                 await self._async_handle_aux_heater_havent_run_today()
@@ -119,9 +130,7 @@ class HeaterAUXHeaterDevice(MultiHvacDevice):
 
     async def _async_handle_aux_heater_ran_today(self) -> None:
         _LOGGER.info("Aux heater has already ran today")
-        if self._aux_heater_dual_mode:
-            await self.heater_device.async_turn_on()
-        await self.aux_heater_device.async_turn_on()
+        await self._async_turn_on_aux_heater()
 
     async def _async_handle_aux_heater_havent_run_today(self) -> None:
         if self._aux_heater_dual_mode:
@@ -158,7 +167,7 @@ class HeaterAUXHeaterDevice(MultiHvacDevice):
             time,
         )
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "_first_stage_heating_timed_out: %s",
             first_stage_timed_out,
         )
@@ -185,12 +194,7 @@ class HeaterAUXHeaterDevice(MultiHvacDevice):
             self._first_stage_heating_timed_out()
             and not self.aux_heater_device.is_active
         ):
-            _LOGGER.debug("Turning on aux heater %s", self.aux_heater_device.entity_id)
-            if not self._aux_heater_dual_mode:
-                await self.heater_device.async_turn_off()
-            await self.aux_heater_device.async_turn_on()
-            self._aux_heater_last_run = datetime.datetime.now()
-            self._hvac_action_reason = HVACActionReason.TARGET_TEMP_NOT_REACHED
+            await self._async_turn_on_aux_heater()
 
         else:
             heater_was_active = self.heater_device.is_active
@@ -216,6 +220,28 @@ class HeaterAUXHeaterDevice(MultiHvacDevice):
             STATE_ON,
             timeout,
         )
+
+    async def _async_turn_on_aux_heater(self) -> None:
+        """Turn on second-stage heating, respecting dual-mode staging."""
+        _LOGGER.debug("Turning on aux heater %s", self.aux_heater_device.entity_id)
+        if self._aux_heater_dual_mode:
+            await self.heater_device.async_turn_on()
+        elif self.heater_device.is_active:
+            await self.heater_device.async_turn_off()
+        await self.aux_heater_device.async_turn_on()
+        self._aux_heater_last_run = datetime.datetime.now()
+        self._hvac_action_reason = HVACActionReason.TARGET_TEMP_NOT_REACHED
+
+    @property
+    def _heating_differential_exceeds_stage2_threshold(self) -> bool:
+        """Return true when heating demand is large enough to skip stage-1 delay."""
+        target_temp = getattr(self.environment, self._target_env_attr)
+        cur_temp = self.environment.cur_temp
+
+        if None in (cur_temp, target_temp):
+            return False
+
+        return target_temp - cur_temp > IMMEDIATE_STAGE2_DIFFERENTIAL
 
     @property
     def _has_aux_heating_ran_today(self) -> bool:

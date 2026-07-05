@@ -16,6 +16,8 @@ from ..managers.opening_manager import OpeningManager
 
 _LOGGER = logging.getLogger(__name__)
 
+IMMEDIATE_STAGE2_DIFFERENTIAL = 5.0
+
 
 class CoolerAUXCoolerDevice(MultiHvacDevice):
     """Two-stage cooling controller.
@@ -86,6 +88,14 @@ class CoolerAUXCoolerDevice(MultiHvacDevice):
         )
 
         if too_hot and not any_opening_open:
+            if self._cooling_differential_exceeds_stage2_threshold:
+                _LOGGER.info(
+                    "Cooling differential exceeds %.1f degrees; starting aux cooler immediately",
+                    IMMEDIATE_STAGE2_DIFFERENTIAL,
+                )
+                await self._async_turn_on_aux_cooler()
+                return
+
             await self.cooler_device.async_turn_on()
             self._hvac_action_reason = HVACActionReason.TARGET_TEMP_NOT_REACHED
 
@@ -132,7 +142,7 @@ class CoolerAUXCoolerDevice(MultiHvacDevice):
             any_opening_open,
             time,
         )
-        _LOGGER.info(
+        _LOGGER.debug(
             "_first_stage_cooling_timed_out: %s",
             first_stage_timed_out,
         )
@@ -152,11 +162,7 @@ class CoolerAUXCoolerDevice(MultiHvacDevice):
                 self._hvac_action_reason = HVACActionReason.OPENING
 
         elif first_stage_timed_out and not self.aux_cooler_device.is_active:
-            _LOGGER.debug("Turning on aux cooler %s", self.aux_cooler_device.entity_id)
-            if not self._aux_cooler_dual_mode:
-                await self.cooler_device.async_turn_off()
-            await self.aux_cooler_device.async_turn_on()
-            self._hvac_action_reason = HVACActionReason.TARGET_TEMP_NOT_REACHED
+            await self._async_turn_on_aux_cooler()
 
         elif self.aux_cooler_device.is_active and not self._aux_cooler_dual_mode:
             self._hvac_action_reason = HVACActionReason.TARGET_TEMP_NOT_REACHED
@@ -184,3 +190,24 @@ class CoolerAUXCoolerDevice(MultiHvacDevice):
             STATE_ON,
             timeout,
         )
+
+    async def _async_turn_on_aux_cooler(self) -> None:
+        """Turn on second-stage cooling, respecting dual-mode staging."""
+        _LOGGER.debug("Turning on aux cooler %s", self.aux_cooler_device.entity_id)
+        if self._aux_cooler_dual_mode:
+            await self.cooler_device.async_turn_on()
+        elif self.cooler_device.is_active:
+            await self.cooler_device.async_turn_off()
+        await self.aux_cooler_device.async_turn_on()
+        self._hvac_action_reason = HVACActionReason.TARGET_TEMP_NOT_REACHED
+
+    @property
+    def _cooling_differential_exceeds_stage2_threshold(self) -> bool:
+        """Return true when cooling demand is large enough to skip stage-1 delay."""
+        target_temp = getattr(self.environment, self._target_env_attr)
+        cur_temp = self.environment.cur_temp
+
+        if None in (cur_temp, target_temp):
+            return False
+
+        return cur_temp - target_temp > IMMEDIATE_STAGE2_DIFFERENTIAL

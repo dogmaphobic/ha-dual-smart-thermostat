@@ -132,10 +132,10 @@ class FeatureManager(StateManager):
     @property
     def is_configured_for_heat_cool_mode(self) -> bool:
         """Checks if the configuration is complete for heat/cool mode."""
-        _LOGGER.info("is_configured_for_heat_cool_mode")
-        _LOGGER.info("heat_cool_mode: %s", self._heat_cool_mode)
-        _LOGGER.info("target_temp_high: %s", self.environment.target_temp_high)
-        _LOGGER.info("target_temp_low: %s", self.environment.target_temp_low)
+        _LOGGER.debug("is_configured_for_heat_cool_mode")
+        _LOGGER.debug("heat_cool_mode: %s", self._heat_cool_mode)
+        _LOGGER.debug("target_temp_high: %s", self.environment.target_temp_high)
+        _LOGGER.debug("target_temp_low: %s", self.environment.target_temp_low)
 
         return self._heat_cool_mode or (
             self.environment.target_temp_high is not None

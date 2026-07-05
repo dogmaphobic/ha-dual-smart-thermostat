@@ -1890,3 +1890,63 @@ async def test_cooler_mode_aux_cooler_keep_primary_cooler_on(
 
     assert hass.states.get(cooler_switch).state == STATE_ON
     assert hass.states.get(secondary_cooler_switch).state == STATE_OFF
+
+
+async def test_cooler_mode_aux_cooler_starts_immediately_on_large_differential(
+    hass: HomeAssistant, setup_comp_1  # noqa: F811
+) -> None:
+    """Test secondary cooler starts immediately when cooling demand is large."""
+
+    heater_switch = "input_boolean.heater_switch"
+    cooler_switch = "input_boolean.cooler_switch"
+    secondary_cooler_switch = "input_boolean.secondary_cooler_switch"
+
+    assert await async_setup_component(
+        hass,
+        input_boolean.DOMAIN,
+        {
+            "input_boolean": {
+                "heater_switch": None,
+                "cooler_switch": None,
+                "secondary_cooler_switch": None,
+            }
+        },
+    )
+
+    assert await async_setup_component(
+        hass,
+        input_number.DOMAIN,
+        {
+            "input_number": {
+                "temp": {"name": "test", "initial": 20, "min": 0, "max": 40, "step": 1}
+            }
+        },
+    )
+
+    assert await async_setup_component(
+        hass,
+        CLIMATE,
+        {
+            "climate": {
+                "platform": DOMAIN,
+                "name": "test",
+                "heater": heater_switch,
+                "cooler": cooler_switch,
+                "secondary_cooler": secondary_cooler_switch,
+                "secondary_cooler_timeout": {"seconds": 600},
+                "secondary_cooler_dual_mode": True,
+                "target_sensor": common.ENT_SENSOR,
+                "initial_hvac_mode": HVACMode.COOL,
+                "cold_tolerance": 0.5,
+                "hot_tolerance": 0.5,
+            }
+        },
+    )
+    await hass.async_block_till_done()
+
+    await common.async_set_temperature(hass, 25)
+    setup_sensor(hass, 30.1)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(cooler_switch).state == STATE_ON
+    assert hass.states.get(secondary_cooler_switch).state == STATE_ON

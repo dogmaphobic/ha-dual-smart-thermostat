@@ -1698,6 +1698,56 @@ async def test_heater_mode_aux_heater_keep_primary_heater_on(
     assert hass.states.get(secondary_heater_switch).state == STATE_ON
 
 
+async def test_heater_mode_aux_heater_starts_immediately_on_large_differential(
+    hass: HomeAssistant, setup_comp_1  # noqa: F811
+) -> None:
+    """Test secondary heater starts immediately when heating demand is large."""
+
+    heater_switch = "input_boolean.heater_switch"
+    secondary_heater_switch = "input_boolean.secondary_heater_switch"
+
+    assert await async_setup_component(
+        hass,
+        input_boolean.DOMAIN,
+        {"input_boolean": {"heater_switch": None, "secondary_heater_switch": None}},
+    )
+
+    assert await async_setup_component(
+        hass,
+        input_number.DOMAIN,
+        {
+            "input_number": {
+                "temp": {"name": "test", "initial": 20, "min": 0, "max": 40, "step": 1}
+            }
+        },
+    )
+
+    assert await async_setup_component(
+        hass,
+        CLIMATE,
+        {
+            "climate": {
+                "platform": DOMAIN,
+                "name": "test",
+                "heater": heater_switch,
+                "secondary_heater": secondary_heater_switch,
+                "secondary_heater_timeout": {"seconds": 600},
+                "secondary_heater_dual_mode": True,
+                "target_sensor": common.ENT_SENSOR,
+                "initial_hvac_mode": HVACMode.HEAT,
+            }
+        },
+    )
+    await hass.async_block_till_done()
+
+    await common.async_set_temperature(hass, 23)
+    setup_sensor(hass, 17.9)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(heater_switch).state == STATE_ON
+    assert hass.states.get(secondary_heater_switch).state == STATE_ON
+
+
 async def test_heater_mode_tolerance(
     hass: HomeAssistant, setup_comp_1  # noqa: F811
 ) -> None:
